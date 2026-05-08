@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SSD/NAND Firmware Knowledge Assistant</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">Firmware Knowledge Assistant</p>
+          <h1>SSD/NAND Engineering Evidence Console</h1>
+          <p class="lede">
+            Query firmware notes, validation records, and RMA-style evidence with
+            subsystem classification and grounded action guidance. Default model:
+            <strong>{{ model_name }}</strong>.
+          </p>
+        </div>
+        <div class="status-grid">
+          <div><span>Knowledge Chunks</span><strong id="docCount">{{ document_count }}</strong></div>
+          <div><span>Evidence Mode</span><strong>Cited</strong></div>
+        </div>
+      </section>
+
+      <section class="layout">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Engineering Question</h2>
+            <button id="askButton">Analyze</button>
+          </div>
+          <label for="questionInput">Question or failure symptom</label>
+          <textarea id="questionInput" rows="6"></textarea>
+          <div class="quick-row">
+            <button class="ghost" data-question="Why would read retry count spike after a firmware update?">Read retry spike</button>
+            <button class="ghost" data-question="What can cause write latency during garbage collection?">FTL latency</button>
+            <button class="ghost" data-question="What should I inspect when controller resets increase with temperature?">Thermal reset</button>
+          </div>
+          <section class="result-grid">
+            <div class="result-card">
+              <span>Subsystem</span>
+              <strong id="subsystemOutput">-</strong>
+            </div>
+            <div class="result-card">
+              <span>Evidence</span>
+              <strong id="qualityOutput">-</strong>
+            </div>
+            <div class="result-card">
+              <span>Confidence</span>
+              <strong id="confidenceOutput">-</strong>
+            </div>
+          </section>
+          <div class="answer-block">
+            <h3>Grounded Answer</h3>
+            <pre id="answerOutput">Ask a question to retrieve evidence and build a debugging recommendation.</pre>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Document Intake</h2>
+          <form id="uploadForm" class="upload-form">
+            <label for="titleInput">Document title</label>
+            <input id="titleInput" name="title" value="Uploaded Engineering Note" />
+            <label for="topicInput">Subsystem / topic</label>
+            <select id="topicInput" name="topic">
+              <option>NAND</option>
+              <option>FTL</option>
+              <option>Host</option>
+              <option>Hardware</option>
+              <option>Unknown</option>
+            </select>
+            <label for="fileInput">TXT, MD, LOG, CSV, or JSON file</label>
+            <input id="fileInput" name="file" type="file" />
+            <button type="submit">Index Document</button>
+          </form>
+          <p id="uploadStatus" class="muted">No uploaded document indexed in this session.</p>
+          <h3>Recommended Actions</h3>
+          <ul id="actionList" class="action-list"></ul>
+        </article>
+      </section>
+
+      <section class="panel notes-panel">
+        <div class="panel-head">
+          <h2>Retrieved Sources and Knowledge Base</h2>
+          <button class="ghost" id="reloadButton">Reload</button>
+        </div>
+        <div id="citationList" class="citation-list"></div>
+        <div id="knowledgeList" class="knowledge-list"></div>
+      </section>
+    </main>
+
+    <script>
+      const askButton = document.getElementById("askButton");
+      const questionInput = document.getElementById("questionInput");
+      const answerOutput = document.getElementById("answerOutput");
+      const citationList = document.getElementById("citationList");
+      const knowledgeList = document.getElementById("knowledgeList");
+      const subsystemOutput = document.getElementById("subsystemOutput");
+      const qualityOutput = document.getElementById("qualityOutput");
+      const confidenceOutput = document.getElementById("confidenceOutput");
+      const actionList = document.getElementById("actionList");
+      const uploadForm = document.getElementById("uploadForm");
+      const uploadStatus = document.getElementById("uploadStatus");
+      const docCount = document.getElementById("docCount");
+      const reloadButton = document.getElementById("reloadButton");
+
+      async function loadKnowledge() {
+        const response = await fetch("/api/knowledge");
+        const payload = await response.json();
+        docCount.textContent = payload.documents.length;
+        knowledgeList.innerHTML = payload.documents
+          .slice(0, 8)
+          .map(
+            (doc) => `
+              <div class="note">
+                <p class="note-topic">${doc.topic}</p>
+                <h3>${doc.title}</h3>
+                <p>${doc.content}</p>
+                <small>${doc.source}</small>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      async function askQuestion() {
+        const question = questionInput.value.trim();
+        if (!question) {
+          answerOutput.textContent = "Enter a question first.";
+          return;
+        }
+
+        answerOutput.textContent = "Thinking...";
+        citationList.innerHTML = "";
+
+        const response = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, top_k: 4 }),
+        });
+        const payload = await response.json();
+        answerOutput.textContent = payload.answer;
+        subsystemOutput.textContent = payload.likely_subsystem;
+        qualityOutput.textContent = payload.evidence_quality.level;
+        confidenceOutput.textContent = `${Math.round(payload.evidence_quality.confidence * 100)}%`;
+        actionList.innerHTML = payload.recommended_actions
+          .map((item) => `<li>${item}</li>`)
+          .join("");
+        citationList.innerHTML = payload.citations.length
+          ? payload.citations
+          .map(
+            (item) => `
+              <div class="citation">
+                <strong>${item.title}</strong>
+                <span>${item.topic} | ${item.source} | score ${item.score}</span>
+              </div>
+            `
+          )
+          .join("")
+          : `<p class="muted">No evidence found. Upload more engineering context.</p>`;
+      }
+
+      async function uploadDocument(event) {
+        event.preventDefault();
+        const formData = new FormData(uploadForm);
+        uploadStatus.textContent = "Indexing document...";
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          uploadStatus.textContent = payload.error || "Upload failed.";
+          return;
+        }
+        uploadStatus.textContent = `Indexed ${payload.chunks} chunks from ${payload.source}.`;
+        await loadKnowledge();
+      }
+
+      document.querySelectorAll("[data-question]").forEach((button) => {
+        button.addEventListener("click", () => {
+          questionInput.value = button.dataset.question;
+          askQuestion();
+        });
+      });
+      askButton.addEventListener("click", askQuestion);
+      uploadForm.addEventListener("submit", uploadDocument);
+      reloadButton.addEventListener("click", loadKnowledge);
+      loadKnowledge();
+    </script>
+  </body>
+</html>

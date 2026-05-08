@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Read Retry Handling During NAND Margin Stress",
+    "topic": "NAND",
+    "source": "nand_read_retry_note.md",
+    "content": "A spike in read retry count usually indicates the controller is operating closer to NAND margin limits. Common triggers are worn blocks, unstable thermal behavior, or an aggressive timing update in a new firmware release. Firmware teams should compare retry counters before and after the change and inspect ECC trend lines."
+  },
+  {
+    "title": "FTL Garbage Collection Side Effects",
+    "topic": "FTL",
+    "source": "ftl_gc_behavior.md",
+    "content": "When background garbage collection overlaps with sustained writes, write latency and temporary host stalls can increase. The behavior is more visible when free-block pressure is high or when wear-leveling triggers additional copy operations."
+  },
+  {
+    "title": "Power Loss Recovery Checklist",
+    "topic": "Host",
+    "source": "plr_checklist.md",
+    "content": "After an unexpected power drop, firmware validation should confirm metadata journal recovery, mapping table integrity, and whether the host queue resumed in the expected order. If failures appear only after resume, compare the queue-reset flow with the previous stable release."
+  },
+  {
+    "title": "Thermal Drift and Controller Resets",
+    "topic": "Hardware",
+    "source": "thermal_reset_analysis.md",
+    "content": "Repeated controller resets combined with rising temperature often point to unstable board-level conditions, poor cooling, or voltage-margin sensitivity. Engineers should correlate reset timestamps against thermal telemetry and recent workload spikes."
+  },
+  {
+    "title": "Wear-Leveling Regression Review",
+    "topic": "NAND",
+    "source": "wear_leveling_regression.md",
+    "content": "If one firmware version shows faster bad-block growth than the previous release, compare the wear-leveling thresholds, block retirement criteria, and refresh policy. Look for changes that increased concentration on hot blocks."
+  }
+]
