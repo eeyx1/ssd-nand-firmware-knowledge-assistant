@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,7 @@ DATA_FILE = BASE_DIR / "data" / "knowledge_base.json"
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+AUDIT_LOG: list[dict[str, Any]] = []
 
 app = FastAPI(title="SSD/NAND Firmware Knowledge Assistant", version="0.1.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
@@ -66,6 +69,44 @@ ACTION_GUIDANCE = {
     "Unknown": [
         "Collect additional logs, firmware version, workload profile, and affected unit history.",
         "Avoid assigning root cause until stronger evidence is retrieved.",
+    ],
+}
+
+
+OWNER_TEAMS = {
+    "Host": "Firmware Host Interface",
+    "FTL": "Firmware FTL",
+    "NAND": "NAND Reliability",
+    "Hardware": "Hardware Validation",
+    "Unknown": "Reliability Triage",
+}
+
+
+REQUIRED_EVIDENCE = {
+    "Host": [
+        "host command trace with timestamps",
+        "NVMe/USB/eMMC command timeout counters",
+        "firmware version and host workload profile",
+    ],
+    "FTL": [
+        "free-block pool trend",
+        "garbage-collection latency trace",
+        "mapping-table and wear-leveling change notes",
+    ],
+    "NAND": [
+        "ECC correction trend by block/page",
+        "read-retry counter distribution",
+        "NAND lot, erase-cycle, and retention history",
+    ],
+    "Hardware": [
+        "temperature and voltage timeline",
+        "reset reason register dump",
+        "board/power/cooling inspection notes",
+    ],
+    "Unknown": [
+        "full failure log bundle",
+        "affected unit history",
+        "firmware version, workload, and reproduction steps",
     ],
 }
 
@@ -131,6 +172,71 @@ def evidence_quality(contexts: list[dict[str, Any]]) -> dict[str, Any]:
     if top_score >= 4:
         return {"level": "moderate", "confidence": 0.62, "reason": "Relevant notes found, but evidence should be verified"}
     return {"level": "weak", "confidence": 0.35, "reason": "Only weak evidence matched the question"}
+
+
+def build_trace_id(question: str) -> str:
+    digest = hashlib.sha1(question.strip().lower().encode("utf-8")).hexdigest()[:8].upper()
+    return f"QA-{digest}"
+
+
+def build_investigation_runbook(
+    question: str,
+    contexts: list[dict[str, Any]],
+    subsystem: str,
+    quality: dict[str, Any],
+) -> dict[str, Any]:
+    evidence_titles = [item["title"] for item in contexts[:3]]
+    return {
+        "objective": "Turn the symptom into a reproducible firmware investigation with cited evidence.",
+        "owner_team": OWNER_TEAMS[subsystem],
+        "likely_subsystem": subsystem,
+        "evidence_level": quality["level"],
+        "required_evidence": REQUIRED_EVIDENCE[subsystem],
+        "debug_sequence": [
+            "Confirm firmware version, NAND lot, workload, and exact failure timestamp.",
+            "Compare the affected unit against a healthy unit from the same cohort.",
+            *ACTION_GUIDANCE[subsystem],
+        ],
+        "evidence_used": evidence_titles,
+        "exit_criteria": [
+            "Root-cause hypothesis is linked to a cited log, note, or metric.",
+            "A reproduction or A/B comparison exists before firmware action is recommended.",
+            "Owner team signs off on next validation step.",
+        ],
+        "question": question,
+    }
+
+
+def build_risk_controls(quality: dict[str, Any], citations: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "grounding_policy": "context-only",
+        "evidence_level": quality["level"],
+        "citation_count": len(citations),
+        "hallucination_guard": "Answer must say when evidence is insufficient.",
+        "review_required": quality["level"] in {"weak", "insufficient"},
+    }
+
+
+def record_audit_event(
+    trace_id: str,
+    question: str,
+    subsystem: str,
+    quality: dict[str, Any],
+    citations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event = {
+        "trace_id": trace_id,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "question": question,
+        "likely_subsystem": subsystem,
+        "evidence_level": quality["level"],
+        "confidence": quality["confidence"],
+        "citation_titles": [item["title"] for item in citations],
+        "owner_team": OWNER_TEAMS[subsystem],
+    }
+    AUDIT_LOG.append(event)
+    del AUDIT_LOG[:-50]
+    return event
 
 
 def read_upload_text(upload: UploadFile, raw: bytes) -> str:
@@ -212,6 +318,7 @@ async def ask_question(payload: QuestionPayload) -> JSONResponse:
     subsystem = classify_subsystem(combined_text)
     quality = evidence_quality(contexts)
     answer = answer_question(payload.question, contexts, subsystem, quality)
+    trace_id = build_trace_id(payload.question)
     citations = [
         {
             "title": item["title"],
@@ -221,13 +328,18 @@ async def ask_question(payload: QuestionPayload) -> JSONResponse:
         }
         for item in contexts
     ]
+    audit_event = record_audit_event(trace_id, payload.question, subsystem, quality, citations)
     return JSONResponse(
         {
+            "trace_id": trace_id,
             "answer": answer,
             "citations": citations,
             "likely_subsystem": subsystem,
             "evidence_quality": quality,
             "recommended_actions": ACTION_GUIDANCE[subsystem],
+            "investigation_runbook": build_investigation_runbook(payload.question, contexts, subsystem, quality),
+            "risk_controls": build_risk_controls(quality, citations),
+            "audit_event": audit_event,
         }
     )
 
@@ -274,6 +386,17 @@ async def upload_knowledge(
     )
 
 
+@app.get("/api/audit-log")
+async def audit_log() -> JSONResponse:
+    return JSONResponse(
+        {
+            "events": list(reversed(AUDIT_LOG[-25:])),
+            "retention_policy": "in-memory demo audit trail",
+            "max_events": 50,
+        }
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "audit_events": str(len(AUDIT_LOG))}

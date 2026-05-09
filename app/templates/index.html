@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SSD/NAND Firmware Knowledge Assistant</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -50,6 +51,10 @@
               <span>Confidence</span>
               <strong id="confidenceOutput">-</strong>
             </div>
+            <div class="result-card">
+              <span>Trace ID</span>
+              <strong id="traceOutput">-</strong>
+            </div>
           </section>
           <div class="answer-block">
             <h3>Grounded Answer</h3>
@@ -77,6 +82,10 @@
           <p id="uploadStatus" class="muted">No uploaded document indexed in this session.</p>
           <h3>Recommended Actions</h3>
           <ul id="actionList" class="action-list"></ul>
+          <h3>Investigation Runbook</h3>
+          <div id="runbookBlock" class="runbook-block muted">
+            Ask a question to generate owner team, evidence requirements, exit criteria, and debug sequence.
+          </div>
         </article>
       </section>
 
@@ -99,7 +108,9 @@
       const subsystemOutput = document.getElementById("subsystemOutput");
       const qualityOutput = document.getElementById("qualityOutput");
       const confidenceOutput = document.getElementById("confidenceOutput");
+      const traceOutput = document.getElementById("traceOutput");
       const actionList = document.getElementById("actionList");
+      const runbookBlock = document.getElementById("runbookBlock");
       const uploadForm = document.getElementById("uploadForm");
       const uploadStatus = document.getElementById("uploadStatus");
       const docCount = document.getElementById("docCount");
@@ -144,9 +155,18 @@
         subsystemOutput.textContent = payload.likely_subsystem;
         qualityOutput.textContent = payload.evidence_quality.level;
         confidenceOutput.textContent = `${Math.round(payload.evidence_quality.confidence * 100)}%`;
+        traceOutput.textContent = payload.trace_id;
         actionList.innerHTML = payload.recommended_actions
           .map((item) => `<li>${item}</li>`)
           .join("");
+        runbookBlock.innerHTML = `
+          <p><strong>Owner:</strong> ${payload.investigation_runbook.owner_team}</p>
+          <p><strong>Policy:</strong> ${payload.risk_controls.grounding_policy}, review required: ${payload.risk_controls.review_required}</p>
+          <h4>Required Evidence</h4>
+          <ul>${payload.investigation_runbook.required_evidence.map((item) => `<li>${item}</li>`).join("")}</ul>
+          <h4>Debug Sequence</h4>
+          <ul>${payload.investigation_runbook.debug_sequence.map((item) => `<li>${item}</li>`).join("")}</ul>
+        `;
         citationList.innerHTML = payload.citations.length
           ? payload.citations
           .map(

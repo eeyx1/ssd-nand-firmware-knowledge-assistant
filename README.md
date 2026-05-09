@@ -119,6 +119,61 @@ Why it helps industry:
 - junior engineers get structured guidance
 - interviewers can see real troubleshooting thinking
 
+## Industrial v2 Upgrade
+
+### 1. Traceable Audit Trail
+
+Every `/api/ask` response now includes a `trace_id` such as `QA-8F3A1C20`, plus an audit event containing timestamp, subsystem, confidence, citation titles, and owner team. The `/api/audit-log` endpoint exposes the most recent events.
+
+Why it matters:
+
+- production AI tools need accountability, not anonymous answers
+- engineering teams can review what evidence led to a recommendation
+- this is useful for RMA, customer escalation, and validation review records
+
+### 2. Investigation Runbook
+
+Each answer now returns an `investigation_runbook` with:
+
+- objective
+- owner team
+- required evidence
+- debug sequence
+- evidence used
+- exit criteria
+
+Why it matters:
+
+- the assistant becomes a workflow tool, not only a chatbot
+- junior engineers can follow a safe investigation path
+- senior engineers can quickly validate whether the answer has enough evidence
+
+### 3. AI Risk Controls
+
+The response includes `risk_controls`:
+
+- grounding policy: `context-only`
+- evidence level
+- citation count
+- hallucination guard
+- whether human review is required
+
+Why it matters:
+
+- weak evidence is explicitly marked
+- unsupported answers are discouraged
+- this matches the safety expectation for engineering AI systems
+
+### 4. Industrial Delivery Readiness
+
+The project now includes:
+
+- `tests/` with FastAPI endpoint and behavior tests
+- `requirements-dev.txt` for test dependencies
+- `Dockerfile` for containerized local deployment
+- `.env.example` for model/API configuration
+- `.github/workflows/ci.yml` for automated test checks
+
 ## Tech Stack
 
 - Python
@@ -161,7 +216,13 @@ app/
 data/
   knowledge_base.json     starter firmware/NAND notes
   uploads/                uploaded engineering notes
+tests/
+  test_industrial_features.py
+Dockerfile                container runtime
+.github/workflows/ci.yml  GitHub Actions test workflow
+.env.example              environment variable template
 requirements.txt          dependencies
+requirements-dev.txt      test dependencies
 README.md                 project guide
 ```
 
@@ -171,6 +232,7 @@ README.md                 project guide
 - `GET /api/knowledge` lists loaded knowledge notes
 - `POST /api/ask` answers a question with citations, subsystem, confidence, and actions
 - `POST /api/upload` indexes a text/log/CSV/JSON engineering note
+- `GET /api/audit-log` returns recent traceable Q&A audit events
 - `GET /health` checks service status
 
 ## How To Run
@@ -192,6 +254,20 @@ Optional:
 ```bash
 set OPENAI_API_KEY=your_key
 set OPENAI_MODEL=gpt-5.4
+```
+
+## Testing
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest tests -q
+```
+
+## Docker
+
+```bash
+docker build -t firmware-knowledge-assistant .
+docker run --rm -p 8001:8001 --env-file .env.example firmware-knowledge-assistant
 ```
 
 ## Demo Questions
@@ -217,6 +293,5 @@ Built an SSD/NAND firmware knowledge assistant using Python, FastAPI, retrieval 
 - persist uploaded documents in a database
 - add access control for confidential engineering documents
 - add PDF parsing
-- add audit logs for every answer
 - add evaluation tests for answer grounding
-- add Docker and deployment pipeline
+- replace in-memory audit events with a database-backed audit table

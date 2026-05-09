@@ -155,7 +155,7 @@ button {
 }
 
 .result-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 12px;
 }
 
@@ -226,6 +226,19 @@ small {
 .action-list {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.runbook-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9fb;
+  padding: 12px;
+  line-height: 1.55;
+}
+
+.runbook-block h4 {
+  margin: 12px 0 6px;
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {
